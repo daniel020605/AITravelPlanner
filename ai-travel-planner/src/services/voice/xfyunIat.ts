@@ -72,6 +72,67 @@ function pcm16ToBase64(pcm: Int16Array): string {
 }
 
 export class XFYunIAT {
+  static async testConnection(opts: { appId: string; apiKey: string; apiSecret: string; timeoutMs?: number }): Promise<{ ok: boolean; message: string }> {
+    try {
+      const client = new XFYunIAT(opts);
+      const url = await client.buildWsUrl();
+      const timeout = Math.max(2000, Math.min(opts.timeoutMs || 5000, 10000));
+      return await new Promise((resolve) => {
+        let done = false;
+        const ws = new WebSocket(url);
+        const timer = window.setTimeout(() => {
+          if (done) return;
+          done = true;
+          try { ws.close(); } catch {}
+          resolve({ ok: false, message: '连接超时' });
+        }, timeout);
+
+        ws.onopen = () => {
+          if (done) return;
+          done = true;
+          window.clearTimeout(timer);
+          try { ws.close(); } catch {}
+          resolve({ ok: true, message: '连接成功' });
+        };
+
+        ws.onmessage = (evt) => {
+          // 尝试解析服务端错误
+          try {
+            const data = JSON.parse((evt as MessageEvent).data as any);
+            if (data && typeof data.code === 'number' && data.code !== 0) {
+              const msg = data.message || `错误码: ${data.code}`;
+              if (done) return;
+              done = true;
+              window.clearTimeout(timer);
+              try { ws.close(); } catch {}
+              resolve({ ok: false, message: `服务端返回错误：${msg}` });
+            }
+          } catch {}
+        };
+
+        ws.onerror = () => {
+          if (done) return;
+          done = true;
+          window.clearTimeout(timer);
+          resolve({ ok: false, message: 'WebSocket错误（鉴权或网络）' });
+        };
+
+        ws.onclose = (ev) => {
+          // 如果未成功 open 就 close，返回更详细关闭原因
+          if (done) return;
+          done = true;
+          window.clearTimeout(timer);
+          const reason = (ev && (ev as CloseEvent).reason) ? (ev as CloseEvent).reason : '连接被关闭';
+          // 统一提示，保留具体 reason 以便排查
+          resolve({ ok: false, message: reason || '连接被关闭' });
+        };
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '未知错误';
+      return { ok: false, message: msg };
+    }
+  }
+
   private appId: string;
   private apiKey: string;
   private apiSecret: string;
@@ -97,7 +158,7 @@ export class XFYunIAT {
     const date = toRFC1123Date();
     const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${path} HTTP/1.1`;
     const signatureSha = await hmacSHA256Base64Sync(this.apiSecret, signatureOrigin);
-    const authorization = `hmac username="${this.apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`;
+    const authorization = `hmac api_key="${this.apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`;
     const params = new URLSearchParams({
       authorization: btoa(authorization),
       date,
@@ -119,7 +180,7 @@ export class XFYunIAT {
       },
       data: {
         status,
-        format: 'audio/L16;rate=16000',
+        format: 'audio/L16;rate=16000;channel=1',
         encoding: 'raw',
         audio: audioBase64,
       },

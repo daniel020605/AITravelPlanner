@@ -70,6 +70,42 @@ export async function fetchPlans(userId: string): Promise<TravelPlan[]> {
   }
 }
 
+export async function fetchPlanById(planId: string): Promise<TravelPlan | null> {
+  if (!isEnabled()) return null;
+  const { url } = base();
+  try {
+    const resp = await fetch(`${url}/rest/v1/travel_plans?id=eq.${encodeURIComponent(planId)}&select=*`, {
+      method: 'GET',
+      headers: headers()
+    });
+    if (!resp.ok) {
+      throw new Error(`Supabase fetchPlanById failed: ${resp.status} ${resp.statusText}`);
+    }
+    const rows: any[] = await resp.json();
+    if (!rows || rows.length === 0) return null;
+    const row: any = rows[0];
+    const plan: TravelPlan = {
+      id: String(row.id),
+      user_id: String(row.user_id),
+      title: String(row.title),
+      destination: String(row.destination),
+      start_date: String(row.start_date),
+      end_date: String(row.end_date),
+      budget: Number(row.budget) || 0,
+      travelers: Number(row.travelers) || 1,
+      preferences: Array.isArray(row.preferences) ? row.preferences : [],
+      itinerary: Array.isArray(row.itinerary) ? row.itinerary : [],
+      expenses: Array.isArray(row.expenses) ? row.expenses : [],
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+    };
+    return plan;
+  } catch (error) {
+    console.error('Supabase fetchPlanById error:', error);
+    throw error;
+  }
+}
+
 export async function upsertPlan(plan: TravelPlan): Promise<void> {
   if (!isEnabled()) return;
   const { url } = base();

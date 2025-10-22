@@ -441,6 +441,96 @@ export const openaiService = {
     }
   },
 
+  // 解析语音识别文本为结构化表单字段
+  async parseVoiceInput(text: string): Promise<{
+    destination?: string;
+    budget?: number;
+    travelers?: number;
+    preferences?: string[];
+    start_date?: string;
+    end_date?: string;
+    remarks?: string;
+  }> {
+    const cfg = useConfigStore.getState().config || {};
+    const hasKey = !!(cfg.openai_api_key || env.openaiApiKey);
+    if (!hasKey) {
+      // 无 Key 时提示调用方走本地规则回退
+      throw new Error('NO_API_KEY');
+    }
+
+    const allowedPrefs = ['food','culture','nature','shopping','adventure','relaxation','photography','nightlife','anime','history'];
+    const now = new Date();
+    const currentLocal = now.toLocaleString('zh-CN', { hour12: false });
+    const currentISODate = now.toISOString().slice(0, 10);
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const system = '你是一个旅行需求抽取助手，从中文口语文本中稳健提取结构化字段。严格：仅输出 JSON（json_object），无任何解释或多余文本。遇到模糊表达需做合理推断与规范化。';
+    const user = `当前本地时间：${currentLocal}（时区：${timeZone}，ISO日期：${currentISODate}）。请据此解析相对日期表达（如“下周五”“本月二十号”“五一假期”等）。\n请从下文口语文本中抽取以下字段，并统一规范：
+- destination：目的地（字符串），例如 北京/东京/上海/成都；若出现“我想去/去某地”，提取该地名；若多个目的地，仅选择最主要的一个
+- budget：预算（数字，人民币元），支持中文数量词与单位归一：如“一万/1万/约一万/一万块/预算一万”→10000；“两千/约两千”→2000；若为“预算不确定/随意”，则不填该键
+- travelers：人数（数字），如“我们三个人/3人/一家四口”→3 或 4；若未提及则不填该键
+- preferences：枚举 ${JSON.stringify(allowedPrefs)}，数组；从口语偏好关键词中映射（如 美食→food，博物馆/文化→culture 等），不在枚举内的忽略；不超过5项
+- start_date：开始日期（YYYY-MM-DD），支持口语日期推断，如“下周五”“本月二十号”“五一假期”；若语境明确但无法确定具体日期则不填该键
+- end_date：结束日期（YYYY-MM-DD）；若仅说“去三天”，可不填 end_date（由页面后续计算），或在 remarks 说明
+- remarks：不超过80字的简短摘要，含未能结构化的关键信息（如“带孩子”“自由行”“低预算”）
+输出要求：严格返回单个 JSON 对象（json_object），仅包含上述键。可省略无法确定的键。示例：
+{"destination":"北京","budget":10000,"travelers":2,"preferences":["food","culture"],"start_date":"2025-06-10","end_date":"2025-06-13","remarks":"自由行，想拍照打卡"}
+文本：${text}`;
+
+    try {
+      const resp = await aiClient.request({
+        method: 'POST',
+        url: buildEndpoint('/chat/completions'),
+        headers: { 'Content-Type': 'application/json' },
+        data: {
+          model: ((useConfigStore.getState().config?.openai_model || '').trim()) || 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.2
+        }
+      });
+
+      const textOut = String(resp?.data?.choices?.[0]?.message?.content || '{}');
+      let obj: any;
+      try {
+        obj = JSON.parse(textOut);
+      } catch {
+        const s = textOut.indexOf('{');
+        const e = textOut.lastIndexOf('}');
+        if (s !== -1 && e !== -1 && e > s) {
+          obj = JSON.parse(textOut.slice(s, e + 1));
+        } else {
+          obj = {};
+        }
+      }
+
+      const out = {
+        destination: obj.destination ? String(obj.destination).trim() : undefined,
+        budget: Number(obj.budget),
+        travelers: Number(obj.travelers),
+        preferences: Array.isArray(obj.preferences) ? obj.preferences.map((x: any) => String(x)).filter((x: string) => allowedPrefs.includes(x)) : [],
+        start_date: obj.start_date ? String(obj.start_date).slice(0, 10) : undefined,
+        end_date: obj.end_date ? String(obj.end_date).slice(0, 10) : undefined,
+        remarks: obj.remarks ? String(obj.remarks).slice(0, 80) : undefined,
+      };
+
+      // 清洗数字与空串
+      if (!Number.isFinite(out.budget as number)) delete (out as any).budget;
+      if (!Number.isFinite(out.travelers as number)) delete (out as any).travelers;
+      if (!out.destination) delete (out as any).destination;
+      if (!out.start_date) delete (out as any).start_date;
+      if (!out.end_date) delete (out as any).end_date;
+      if (!out.remarks) delete (out as any).remarks;
+
+      return out;
+    } catch (e) {
+      // 将错误上抛，调用方执行回退
+      throw e;
+    }
+  },
+
   // 测试 AI 服务连接（兼容不支持 GET /models 的提供方）
   async testConnection(): Promise<ConnectionTestResult> {
     const cfg = useConfigStore.getState().config || {};

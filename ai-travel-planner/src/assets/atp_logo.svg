@@ -1,0 +1,17 @@
+<svg width="128" height="128" xmlns="http://www.w3.org/2000/svg" aria-labelledby="t3 d3" role="img" fill="none">
+ <title id="t3">AI Travel Planner — Folded Map</title>
+
+ <desc id="d3">A three-panel folded map with a smooth route across panels.</desc>
+ <g>
+  <title>Layer 1</title>
+ <g id="svg_1" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="6" stroke="#FFFFFF">
+   <!-- 三折地图（轻透视） -->
+   <path id="svg_2" d="m20,30l24,-6l40,6l24,-6l0,74l-24,6l-40,-6l-24,6l0,-74z"/>
+   <!-- 折痕 -->
+   <path id="svg_3" d="m44,24l0,74"/>
+   <path id="svg_4" d="m84,30l0,74"/>
+   <!-- 贯穿路径（无箭头、无节点） -->
+   <path id="svg_5" d="m28,88c18,-14 26,-32 36,-32c10,0 18,10 36,6"/>
+  </g>
+ </g>
+</svg>

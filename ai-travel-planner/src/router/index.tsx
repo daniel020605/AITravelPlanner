@@ -7,6 +7,7 @@ import TravelPlanner from '../pages/travel/TravelPlanner';
 import TravelPlans from '../pages/travel/TravelPlans';
 import TravelDetail from '../pages/travel/TravelDetail';
 import Settings from '../pages/settings/Settings';
+import Analytics from '../pages/analytics/Analytics';
 import { ProtectedRoute } from './ProtectedRoute';
 
 export const router = createBrowserRouter([
@@ -59,6 +60,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        )
+      },
+      {
+        path: 'analytics',
+        element: (
+          <ProtectedRoute>
+            <Analytics />
           </ProtectedRoute>
         )
       }

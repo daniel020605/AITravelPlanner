@@ -14,6 +14,7 @@ import {
 import { openaiService } from '../../services/ai/openaiService';
 import { getSupabaseClient } from '../../services/sync/supabaseClient';
 import { amapSearchText } from '../../services/maps/amap';
+import { XFYunIAT } from '../../services/voice/xfyunIat';
 
 const Settings = () => {
   const { config, updateConfig, validateConfig } = useConfigStore();
@@ -389,6 +390,10 @@ const Settings = () => {
             <div className="border rounded-lg p-4">
               <h3 className="text-sm font-medium text-gray-900 mb-3">科大讯飞语音识别</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 测试连接按钮与结果 */}
+                <div className="md:col-span-3">
+                  <XFYunTester />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">App ID</label>
                   <input
@@ -597,6 +602,53 @@ const Settings = () => {
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// 讯飞测试子组件
+const XFYunTester = () => {
+  const cfg = useConfigStore((s) => s.config);
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const runTest = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const appId = (cfg?.xunfei_app_id || '').trim();
+      const apiKey = (cfg?.xunfei_api_key || '').trim();
+      const apiSecret = (cfg?.xunfei_api_secret || '').trim();
+      if (!appId || !apiKey || !apiSecret) {
+        setResult({ ok: false, message: '请先填写 App ID、API Key、API Secret' });
+        return;
+      }
+      const r = await XFYunIAT.testConnection({ appId, apiKey, apiSecret, timeoutMs: 6000 });
+      setResult(r);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '未知错误';
+      setResult({ ok: false, message: msg });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex items-center space-x-3">
+      <button
+        type="button"
+        onClick={runTest}
+        disabled={testing}
+        className="px-3 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+      >
+        {testing ? '测试中…' : '测试连接'}
+      </button>
+      {result && (
+        <span className={`text-sm ${result.ok ? 'text-green-600' : 'text-red-600'}`}>
+          {result.message}
+        </span>
+      )}
+      <span className="text-xs text-gray-500">仅测试鉴权与连接建立，不会请求麦克风权限</span>
     </div>
   );
 };

@@ -24,6 +24,18 @@ export async function fetchPlans(userId: string): Promise<TravelPlan[]> {
   return rows as TravelPlan[];
 }
 
+export async function fetchPlanById(planId: string): Promise<TravelPlan | null> {
+  const { url } = base();
+  const cfg = useConfigStore.getState().config || {};
+  const headers: Record<string, string> = {};
+  if (cfg.sync_api_key) headers['X-API-KEY'] = cfg.sync_api_key as string;
+  const resp = await fetch(`${url}/api/travel_plans/${encodeURIComponent(planId)}`, { headers });
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(`fetchPlanById failed: ${resp.status}`);
+  const row = await resp.json();
+  return row as TravelPlan;
+}
+
 export async function upsertPlan(plan: TravelPlan): Promise<void> {
   const { url } = base();
   const cfg = useConfigStore.getState().config || {};

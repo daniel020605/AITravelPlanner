@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useNavigate } from 'react-router-dom';
 import { useConfigStore } from '../../stores/configStore';
 import { XFYunIAT } from '../../services/voice/xfyunIat';
+import { openaiService } from '../../services/ai/openaiService';
 
 interface SpeechRecognitionEvent {
   results: SpeechRecognitionResultList;
@@ -94,6 +95,10 @@ const TravelPlanner = () => {
   const { generateItinerary, createPlan } = useTravelStore();
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const inputClass =
+    'w-full rounded-xl border border-white/50 bg-white/70 px-3 py-2.5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/70 focus:border-transparent backdrop-blur';
+  const labelClass =
+    'flex items-center text-sm font-semibold text-slate-600 mb-2';
 
   const {
     register,
@@ -126,46 +131,58 @@ const TravelPlanner = () => {
 
   const PENDING_DRAFT_KEY = 'pending-plan-draft';
 
-  // 基于中文口述的简单解析：目的地/预算/人数/偏好
-  const applyVoiceParsing = (text: string) => {
+  // 使用大模型做全面解析，失败则回退到本地规则
+  const applyVoiceParsing = async (text: string) => {
     try {
-      // 目的地：匹配“去XXX”或“我想去XXX”
-      const destMatch = text.match(/(?:我想去|去)([\\u4e00-\\u9fa5A-Za-z0-9·\\s]{1,30})/);
-      if (destMatch && destMatch[1]) {
-        const dest = destMatch[1].replace(/(玩|旅游|旅行|看看|逛逛)$/,'').trim();
-        if (dest) setValue('destination', dest);
-      }
-      // 预算：匹配“预算xxx元/块/人民币/¥”
-      const budgetMatch = text.match(/(?:预算|花费|经费|大约|大概)\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(?:元|块|人民币|RMB|¥)?/i);
-      if (budgetMatch && budgetMatch[1]) {
-        const b = Math.round(parseFloat(budgetMatch[1]));
-        if (Number.isFinite(b) && b > 0) setValue('budget', b);
-      }
-      // 人数：匹配“(一共|人数|我们)X人”
-      const numMatch = text.match(/(?:一共|人数|我们)?\\s*([0-9]+)\\s*人/);
-      if (numMatch && numMatch[1]) {
-        const n = parseInt(numMatch[1], 10);
-        if (Number.isFinite(n) && n > 0) setValue('travelers', n);
-      }
-      // 偏好：按关键词映射
-      const prefMap: Record<string,string> = {
-        '美食|吃|餐厅|小吃':'food',
-        '文化|博物馆|艺术|历史':'culture',
-        '自然|山|湖|公园|海':'nature',
-        '购物|买买买|商场|奥特莱斯':'shopping',
-        '冒险|徒步|攀岩|潜水':'adventure',
-        '休闲|放松|度假|温泉':'relaxation',
-        '摄影|拍照|打卡':'photography',
-        '夜生活|酒吧|夜店':'nightlife',
-        '动漫|二次元|动画':'anime',
-        '历史|古城|遗址':'history'
-      };
-      const selected = new Set<string>(watch('preferences') || []);
-      Object.entries(prefMap).forEach(([keys, id]) => {
-        if (new RegExp(keys).test(text)) selected.add(id);
-      });
-      setValue('preferences', Array.from(selected));
-    } catch {}
+      const parsed = await openaiService.parseVoiceInput(text);
+      if (parsed.destination) setValue('destination', parsed.destination);
+      if (parsed.budget && Number.isFinite(parsed.budget)) setValue('budget', Math.round(parsed.budget));
+      if (parsed.travelers && Number.isFinite(parsed.travelers)) setValue('travelers', Math.max(1, Math.round(parsed.travelers)));
+      if (Array.isArray(parsed.preferences) && parsed.preferences.length > 0) setValue('preferences', parsed.preferences);
+      if (parsed.start_date) setValue('start_date', parsed.start_date);
+      if (parsed.end_date) setValue('end_date', parsed.end_date);
+      return;
+    } catch (e) {
+      // 回退：基于中文口述的简单解析：目的地/预算/人数/偏好
+      try {
+        // 目的地：匹配“去XXX”或“我想去XXX”
+        const destMatch = text.match(/(?:我想去|去)([\u4e00-\u9fa5A-Za-z0-9·\s]{1,30})/);
+        if (destMatch && destMatch[1]) {
+          const dest = destMatch[1].replace(/(玩|旅游|旅行|看看|逛逛)$/,'').trim();
+          if (dest) setValue('destination', dest);
+        }
+        // 预算：匹配“预算xxx元/块/人民币/¥”
+        const budgetMatch = text.match(/(?:预算|花费|经费|大约|大概)\s*([0-9]+(?:\.[0-9]+)?)\s*(?:元|块|人民币|RMB|¥)?/i);
+        if (budgetMatch && budgetMatch[1]) {
+          const b = Math.round(parseFloat(budgetMatch[1]));
+          if (Number.isFinite(b) && b > 0) setValue('budget', b);
+        }
+        // 人数：匹配“(一共|人数|我们)X人”
+        const numMatch = text.match(/(?:一共|人数|我们)?\s*([0-9]+)\s*人/);
+        if (numMatch && numMatch[1]) {
+          const n = parseInt(numMatch[1], 10);
+          if (Number.isFinite(n) && n > 0) setValue('travelers', n);
+        }
+        // 偏好：按关键词映射
+        const prefMap: Record<string,string> = {
+          '美食|吃|餐厅|小吃':'food',
+          '文化|博物馆|艺术|历史':'culture',
+          '自然|山|湖|公园|海':'nature',
+          '购物|买买买|商场|奥特莱斯':'shopping',
+          '冒险|徒步|攀岩|潜水':'adventure',
+          '休闲|放松|度假|温泉':'relaxation',
+          '摄影|拍照|打卡':'photography',
+          '夜生活|酒吧|夜店':'nightlife',
+          '动漫|二次元|动画':'anime',
+          '历史|古城|遗址':'history'
+        };
+        const selected = new Set<string>(watch('preferences') || []);
+        Object.entries(prefMap).forEach(([keys, id]) => {
+          if (new RegExp(keys).test(text)) selected.add(id);
+        });
+        setValue('preferences', Array.from(selected));
+      } catch {}
+    }
   };
 
   const onSubmit = async (data: TravelFormData) => {
@@ -270,7 +287,8 @@ const TravelPlanner = () => {
           onInterim: (t) => setVoiceInput(prev => prev ? prev + ' ' + t : t), // Accumulate interim results
           onFinal: (t) => {
             setVoiceInput(prev => prev ? prev + ' ' + t : t); // Accumulate final results
-            applyVoiceParsing(t);
+            const accumulated = (useConfigStore.getState().config ? voiceInput : voiceInput) ? (voiceInput ? voiceInput + ' ' + t : t) : t;
+            applyVoiceParsing(accumulated);
           },
           onError: (e) => {
             console.error('xfyun error:', e);
@@ -370,60 +388,89 @@ const TravelPlanner = () => {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* 登录提示模态框 */}
       {showLoginPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600 mr-2" />
-                <h3 className="text-lg font-medium text-gray-900">保存行程需要登录</h3>
-              </div>
-              <p className="text-gray-600 mb-6">
-                您的行程已成功生成，但需要登录账户才能保存和管理行程计划。
-              </p>
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowLoginPrompt(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-                >
-                  稍后登录
-                </button>
-                <button
-                  onClick={() => navigate('/auth/login')}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  立即登录
-                </button>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur p-4">
+          <div className="glass-card max-w-md w-full p-8">
+            <div className="flex items-center gap-3 mb-5">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-500">
+                <ExclamationTriangleIcon className="h-6 w-6" />
+              </span>
+              <h3 className="text-lg font-semibold text-slate-900">保存行程需要登录</h3>
+            </div>
+            <p className="text-sm text-slate-600 leading-relaxed mb-6">
+              行程已生成，登录后即可保存并在所有设备上同步管理。
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLoginPrompt(false)}
+                className="secondary-button flex-1 justify-center"
+              >
+                稍后登录
+              </button>
+              <button
+                onClick={() => navigate('/auth/login')}
+                className="primary-button flex-1 justify-center"
+              >
+                立即登录
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">智能行程规划</h1>
+      <div className="glass-card p-8 space-y-8">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">智能行程规划</h1>
+            <p className="text-sm text-slate-500">输入或语音描述你的旅行需求，AI 将为你生成专属行程方案。</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setVoiceInput('');
+                setCustomPref('');
+              }}
+              className="tertiary-button px-5"
+            >
+              重置内容
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSubmit(onSubmit)()}
+              className="primary-button"
+              disabled={isGenerating}
+            >
+              快速生成
+            </button>
+          </div>
+        </div>
 
-        {/* 语音输入区域 */}
-        <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <MicrophoneIcon className="h-6 w-6 text-blue-600" />
-              <span className="text-sm text-blue-800">语音输入行程需求</span>
+        <div className="surface-subtle p-5 space-y-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-600">
+                <MicrophoneIcon className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-slate-900">语音快速填写</p>
+                <p className="text-xs text-slate-500">示例：我想去东京，预算一万，三个人，偏好美食和文化。</p>
+              </div>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={clearVoiceInput}
-                className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50"
+                className="secondary-button px-4 py-2"
               >
                 清除
               </button>
               <button
                 type="button"
                 onClick={handleVoiceInput}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold transition ${
                   isListening
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30 hover:bg-rose-500/90'
+                    : 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500'
                 }`}
               >
                 {isListening ? '停止录音' : '开始录音'}
@@ -431,44 +478,53 @@ const TravelPlanner = () => {
             </div>
           </div>
           {voiceInput && (
-            <div className="mt-3 p-3 bg-white rounded-md">
-              <p className="text-sm text-gray-600">识别结果：</p>
-              <p className="text-gray-900 break-words">{voiceInput}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => applyVoiceParsing(voiceInput)}
-                  className="px-3 py-1.5 rounded-md text-sm bg-white border border-gray-300 hover:bg-gray-50"
-                >
-                  根据识别内容填充
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const s = watch('start_date'); const e = watch('end_date');
-                    if (!s || !e) { alert('请先选择开始/结束日期'); return; }
-                    handleSubmit(onSubmit)();
-                  }}
-                  className="px-3 py-1.5 rounded-md text-sm text-white bg-blue-600 hover:bg-blue-700"
-                >
-                  一键生成
-                </button>
+            <div className="rounded-2xl border border-white/40 bg-white/70 p-4 backdrop-blur">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">识别结果</p>
+                  <p className="mt-2 text-sm text-slate-800 whitespace-pre-wrap break-words">{voiceInput}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applyVoiceParsing(voiceInput)}
+                    className="tertiary-button px-3 py-1.5"
+                  >
+                    自动填充
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const s = watch('start_date');
+                      const e = watch('end_date');
+                      if (!s || !e) {
+                        alert('请先选择开始/结束日期');
+                        return;
+                      }
+                      handleSubmit(onSubmit)();
+                    }}
+                    className="primary-button px-4 py-1.5"
+                  >
+                    一键生成
+                  </button>
+                </div>
               </div>
             </div>
           )}
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+
           {/* 目的地 */}
           <div>
-            <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-              <MapPinIcon className="h-4 w-4 mr-2" />
+            <label className={labelClass}>
+              <MapPinIcon className="h-4 w-4 mr-2 text-slate-400" />
               目的地
             </label>
             <input
               type="text"
               {...register('destination')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={inputClass}
               placeholder="例如：日本东京"
             />
             {errors.destination && (
@@ -479,14 +535,14 @@ const TravelPlanner = () => {
           {/* 日期 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <CalendarIcon className="h-4 w-4 mr-2" />
+              <label className={labelClass}>
+                <CalendarIcon className="h-4 w-4 mr-2 text-slate-400" />
                 开始日期
               </label>
               <input
                 type="date"
                 {...register('start_date')}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className={inputClass}
               />
               {errors.start_date && (
                 <p className="mt-1 text-sm text-red-600">{errors.start_date.message}</p>
@@ -494,14 +550,14 @@ const TravelPlanner = () => {
             </div>
 
             <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <CalendarIcon className="h-4 w-4 mr-2" />
+              <label className={labelClass}>
+                <CalendarIcon className="h-4 w-4 mr-2 text-slate-400" />
                 结束日期
               </label>
               <input
                 type="date"
                 {...register('end_date')}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className={inputClass}
               />
               {errors.end_date && (
                 <p className="mt-1 text-sm text-red-600">{errors.end_date.message}</p>
@@ -512,14 +568,14 @@ const TravelPlanner = () => {
           {/* 预算和人数 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <CurrencyDollarIcon className="h-4 w-4 mr-2" />
+              <label className={labelClass}>
+                <CurrencyDollarIcon className="h-4 w-4 mr-2 text-slate-400" />
                 预算（元）
               </label>
               <input
                 type="number"
                 {...register('budget', { valueAsNumber: true })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className={inputClass}
                 placeholder="10000"
               />
               {errors.budget && (
@@ -528,14 +584,14 @@ const TravelPlanner = () => {
             </div>
 
             <div>
-              <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-                <UserGroupIcon className="h-4 w-4 mr-2" />
+              <label className={labelClass}>
+                <UserGroupIcon className="h-4 w-4 mr-2 text-slate-400" />
                 旅行人数
               </label>
               <input
                 type="number"
                 {...register('travelers', { valueAsNumber: true })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className={inputClass}
                 placeholder="2"
                 min="1"
               />
@@ -547,8 +603,8 @@ const TravelPlanner = () => {
 
           {/* 旅行偏好 */}
           <div>
-            <label className="flex items-center text-sm font-medium text-gray-700 mb-3">
-              <SparklesIcon className="h-4 w-4 mr-2" />
+            <label className={`${labelClass} mb-3`}>
+              <SparklesIcon className="h-4 w-4 mr-2 text-slate-400" />
               旅行偏好
             </label>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -557,10 +613,10 @@ const TravelPlanner = () => {
                   key={option.id}
                   type="button"
                   onClick={() => togglePreference(option.id)}
-                  className={`p-3 rounded-lg border-2 transition-all ${
+                  className={`rounded-xl border-2 px-4 py-3 transition-all ${
                     selectedPreferences.includes(option.id)
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      ? 'border-blue-500 bg-blue-500/15 text-blue-700 shadow-sm'
+                      : 'border-white/40 bg-white/60 text-slate-600 hover:border-blue-200'
                   }`}
                 >
                   <div className="text-2xl mb-1">{option.icon}</div>
@@ -577,7 +633,7 @@ const TravelPlanner = () => {
                 type="text"
                 value={customPref}
                 onChange={(e) => setCustomPref(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className={inputClass}
                 placeholder="添加自定义偏好，如：亲子、动漫、美食街"
               />
               <button
@@ -591,7 +647,7 @@ const TravelPlanner = () => {
                   }
                   setCustomPref('');
                 }}
-                className="px-4 py-2 rounded-md text-sm text-white bg-blue-600 hover:bg-blue-700"
+                className="primary-button px-5 py-2"
               >
                 添加
               </button>
@@ -599,12 +655,12 @@ const TravelPlanner = () => {
             {selectedPreferences && selectedPreferences.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {selectedPreferences.map((p) => (
-                  <span key={p} className="inline-flex items-center px-2 py-1 rounded-full text-sm bg-gray-100 text-gray-800">
+                  <span key={p} className="inline-flex items-center rounded-full border border-white/40 bg-white/60 px-3 py-1 text-sm text-slate-600">
                     {p}
                     <button
                       type="button"
                       onClick={() => setValue('preferences', selectedPreferences.filter(id => id !== p))}
-                      className="ml-1 text-gray-500 hover:text-gray-700"
+                      className="ml-1 text-slate-400 hover:text-slate-600"
                       aria-label={`移除 ${p}`}
                     >
                       ×
@@ -617,13 +673,11 @@ const TravelPlanner = () => {
 
           {/* 备注 */}
           <div>
-            <label className="flex items-center text-sm font-medium text-gray-700 mb-2">
-              备注
-            </label>
+            <label className={labelClass}>备注</label>
             <textarea
               {...register('remarks')}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={`${inputClass} min-h-[96px]`}
               placeholder="可选：补充说明（如必须包含某个景点/餐厅，饮食禁忌，特殊人群需求等）"
             />
           </div>
@@ -633,7 +687,7 @@ const TravelPlanner = () => {
             <button
               type="submit"
               disabled={isGenerating}
-              className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`primary-button px-6 py-3 disabled:opacity-60 disabled:cursor-not-allowed`}
             >
               {isGenerating ? (
                 <>

@@ -22,6 +22,7 @@ interface TravelState {
   updatePlan: (id: string, updates: Partial<TravelPlan>) => Promise<void>;
   deletePlan: (id: string) => Promise<void>;
   loadPlans: () => Promise<void>;
+  fetchPlanById: (id: string) => Promise<TravelPlan | null>;
 
   // 行程项目管理
   addItineraryItem: (item: Omit<ItineraryItem, 'id'>) => Promise<void>;
@@ -284,6 +285,49 @@ export const useTravelStore = create<TravelState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to load plans',
         isLoading: false
       });
+    }
+  },
+
+  fetchPlanById: async (id: string) => {
+    try {
+      // 先查本地
+      const localList = loadPlansFromStorage();
+      const localHit = localList.find(p => p.id === id) || null;
+      if (localHit) {
+        // 更新状态并返回
+        set(state => {
+          const exists = state.plans.find(p => p.id === id);
+          const mergedPlans = exists ? state.plans.map(p => p.id === id ? localHit : p) : [...state.plans, localHit];
+          savePlansToStorage(mergedPlans);
+          saveCurrentPlanId(localHit.id);
+          return { plans: mergedPlans, currentPlan: localHit };
+        });
+        return localHit;
+      }
+
+      // 云端
+      let cloud: TravelPlan | null = null;
+      if (supabaseSync.isEnabled()) {
+        try { cloud = await supabaseSync.fetchPlanById(id); } catch (e) { console.warn('Supabase fetchPlanById failed:', e); }
+      }
+      if (!cloud && srv.isEnabled()) {
+        try { cloud = await srv.fetchPlanById(id); } catch (e) { console.warn('Server fetchPlanById failed:', e); }
+      }
+
+      if (cloud) {
+        set(state => {
+          const exists = state.plans.find(p => p.id === id);
+          const mergedPlans = exists ? state.plans.map(p => p.id === id ? cloud! : p) : [...state.plans, cloud!];
+          savePlansToStorage(mergedPlans);
+          saveCurrentPlanId(cloud!.id);
+          return { plans: mergedPlans, currentPlan: cloud };
+        });
+        return cloud;
+      }
+
+      return null;
+    } catch {
+      return null;
     }
   },
 
