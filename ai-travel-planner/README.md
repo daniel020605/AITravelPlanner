@@ -98,6 +98,22 @@ npm run build
 npm run preview
 ```
 
+### Docker 部署与 CI/CD
+
+- 项目包含基于 Nginx 的多阶段 `Dockerfile`，可直接构建生产镜像：
+  ```bash
+  docker build -t <your-registry>/<namespace>/ai-travel-planner:latest .
+  ```
+- `.github/workflows/docker-publish.yml` 会在推送到 `main`、PR 或手动触发时构建并推送镜像到阿里云容器镜像服务（ACR）。在使用前请先在仓库 Settings 中配置：
+  - **Repository variables**
+    - `ACR_REGISTRY`：例如 `registry.cn-hangzhou.aliyuncs.com`
+    - `ACR_NAMESPACE`：你的命名空间
+    - （可选）`ACR_IMAGE_NAME`：镜像名，默认为 `ai-travel-planner`
+  - **Secrets**
+    - `ALIYUN_REGISTRY_USERNAME`：阿里云镜像仓库登录用户名（建议使用 `aliyun` RAM 子账号）
+    - `ALIYUN_REGISTRY_PASSWORD`：对应的登录密码或访问令牌
+- 工作流会生成 `latest` 与 `sha-<短哈希>` 两个标签，可用于回滚与溯源。
+
 ## 📁 项目结构
 
 ```

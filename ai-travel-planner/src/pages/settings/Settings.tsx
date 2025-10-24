@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import type { ChangeEvent } from 'react';
 import { useConfigStore } from '../../stores/configStore';
 import { useAuthStore } from '../../stores/authStore';
 import {
   KeyIcon,
   UserCircleIcon,
-  BellIcon,
   ShieldCheckIcon,
   EyeIcon,
   EyeSlashIcon,
@@ -15,11 +15,46 @@ import { openaiService } from '../../services/ai/openaiService';
 import { getSupabaseClient } from '../../services/sync/supabaseClient';
 import { amapSearchText } from '../../services/maps/amap';
 import { XFYunIAT } from '../../services/voice/xfyunIat';
+import type { APIConfig } from '../../types';
+
+const API_CONFIG_FIELDS = [
+  'openai_base_url',
+  'openai_api_key',
+  'xunfei_app_id',
+  'xunfei_api_key',
+  'xunfei_api_secret',
+  'amap_key',
+  'supabase_url',
+  'supabase_anon_key',
+  'supabase_service_role_key',
+] as const;
+
+const EXTRA_CONFIG_FIELDS = ['openai_model', 'sync_api_base', 'sync_api_key'] as const;
+
+const ALL_CONFIG_FIELDS = [...API_CONFIG_FIELDS, ...EXTRA_CONFIG_FIELDS] as const;
+
+type ConfigField = (typeof ALL_CONFIG_FIELDS)[number];
+
+const CONFIG_TEMPLATE: Record<ConfigField, string> = {
+  openai_base_url: 'https://api.openai.com/v1',
+  openai_api_key: 'sk-xxxx',
+  openai_model: 'qwen-max',
+  xunfei_app_id: 'your-xunfei-app-id',
+  xunfei_api_key: 'your-xunfei-api-key',
+  xunfei_api_secret: 'your-xunfei-api-secret',
+  amap_key: 'your-amap-key',
+  supabase_url: 'https://your-project.supabase.co',
+  supabase_anon_key: 'public-anon-key',
+  supabase_service_role_key: 'service-role-key (仅限受信环境使用)',
+  sync_api_base: 'https://your-sync-service.example.com',
+  sync_api_key: 'sync-service-api-key',
+};
 
 const Settings = () => {
   const { config, updateConfig, validateConfig } = useConfigStore();
   const { user, logout } = useAuthStore();
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [formData, setFormData] = useState({
     name: user?.name || '',
@@ -36,6 +71,7 @@ const Settings = () => {
     // Supabase 云端同步配置
     supabase_url: config.supabase_url || '',
     supabase_anon_key: config.supabase_anon_key || '',
+    supabase_service_role_key: config.supabase_service_role_key || '',
   });
 
   const [testing, setTesting] = useState(false);
@@ -46,18 +82,13 @@ const Settings = () => {
   const [amapTesting, setAmapTesting] = useState(false);
   const [amapTestResult, setAmapTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const [notifications, setNotifications] = useState({
-    email_notifications: true,
-    push_notifications: true,
-    travel_reminders: true,
-    budget_alerts: true,
-  });
-
   const [privacy, setPrivacy] = useState({
     profile_public: false,
     share_travel_plans: false,
     analytics_cookies: true,
   });
+  const [configActionStatus, setConfigActionStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [copyEmailStatus, setCopyEmailStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const toggleApiKeyVisibility = (key: string) => {
     setShowApiKeys(prev => ({
@@ -179,6 +210,127 @@ const Settings = () => {
     }
   };
 
+  const handleCopyEmail = async () => {
+    if (!formData.email) {
+      setCopyEmailStatus({ type: 'error', message: '当前邮箱为空' });
+      window.setTimeout(() => setCopyEmailStatus(null), 3000);
+      return;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(formData.email);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = formData.email;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopyEmailStatus({ type: 'success', message: '邮箱已复制' });
+      window.setTimeout(() => setCopyEmailStatus(null), 2000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '复制失败';
+      setCopyEmailStatus({ type: 'error', message });
+      window.setTimeout(() => setCopyEmailStatus(null), 3000);
+    }
+  };
+
+  const triggerDownload = (filename: string, payload: Record<string, unknown>) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const downloadTemplate = () => {
+    setConfigActionStatus(null);
+    triggerDownload('config-template.json', CONFIG_TEMPLATE);
+    setConfigActionStatus({ type: 'success', message: '配置模板已下载' });
+  };
+
+  const exportCurrentConfig = () => {
+    setConfigActionStatus(null);
+    const currentConfig = useConfigStore.getState().config || {};
+    const payload: Record<string, unknown> = { ...CONFIG_TEMPLATE };
+    ALL_CONFIG_FIELDS.forEach((field) => {
+      if (currentConfig[field] !== undefined && currentConfig[field] !== null) {
+        payload[field] = currentConfig[field] as unknown;
+      }
+    });
+    const timestamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+    triggerDownload(`config-${timestamp}.json`, payload);
+    setConfigActionStatus({ type: 'success', message: '当前配置已导出' });
+  };
+
+  const handleChooseConfigFile = () => {
+    setConfigActionStatus(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleConfigFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const input = event.target;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = reader.result as string;
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('配置文件格式不正确');
+        }
+
+        const updates: Partial<APIConfig> = {};
+        ALL_CONFIG_FIELDS.forEach((field) => {
+          const value = parsed[field];
+          if (typeof value === 'string') {
+            updates[field] = value;
+          } else if (value === undefined || value === null) {
+            updates[field] = '';
+          }
+        });
+
+        if (Object.keys(updates).length === 0) {
+          throw new Error('未找到可识别的配置项');
+        }
+
+        updateConfig(updates);
+        setApiConfig((prev) => {
+          const next = { ...prev };
+          API_CONFIG_FIELDS.forEach((field) => {
+            if (updates[field] !== undefined) {
+              next[field] = (updates[field] || '') as string;
+            }
+          });
+          return next;
+        });
+
+        setConfigActionStatus({ type: 'success', message: '配置已成功加载' });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '配置文件解析失败';
+        setConfigActionStatus({ type: 'error', message });
+      } finally {
+        input.value = '';
+      }
+    };
+    reader.onerror = () => {
+      setConfigActionStatus({ type: 'error', message: '读取配置文件失败' });
+      input.value = '';
+    };
+    reader.readAsText(file, 'utf-8');
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="bg-white rounded-lg shadow p-6">
@@ -204,12 +356,24 @@ const Settings = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
-              <input
-                type="email"
-                value={formData.email}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500"
-                disabled
-              />
+              <div className="flex items-center space-x-3">
+                <div className="flex-1 px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-gray-600">
+                  {formData.email || '未绑定邮箱'}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyEmail}
+                  className="px-3 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+                  disabled={!formData.email}
+                >
+                  复制
+                </button>
+              </div>
+              {copyEmailStatus && (
+                <p className={`mt-2 text-sm ${copyEmailStatus.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                  {copyEmailStatus.message}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -271,6 +435,32 @@ const Settings = () => {
                   </button>
                 </div>
               </div>
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Service Role Key（可选，慎用）</label>
+                <div className="relative">
+                  <input
+                    type={showApiKeys.supabase_service_role_key ? 'text' : 'password'}
+                    value={maskApiKey(apiConfig.supabase_service_role_key)}
+                    onChange={(e) => handleApiConfigChange('supabase_service_role_key', e.target.value)}
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="仅限受信环境，建议放在后端"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleApiKeyVisibility('supabase_service_role_key')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  >
+                    {showApiKeys.supabase_service_role_key ? (
+                      <EyeSlashIcon className="h-4 w-4 text-gray-400" />
+                    ) : (
+                      <EyeIcon className="h-4 w-4 text-gray-400" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-amber-600 mt-1">
+                  Service Role Key 拥有完全访问权限，仅在受信本地环境使用。若可能，请改在自建中间层存储。
+                </p>
+              </div>
               
               {/* Supabase 测试连接按钮 */}
               <div className="mt-4 space-y-3">
@@ -298,7 +488,7 @@ const Settings = () => {
 
             {/* AI API 配置 */}
             <div className="border rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-900 mb-3">AI 服务 (OpenAI/智谱AI)</h3>
+              <h3 className="text-sm font-medium text-gray-900 mb-3">AI 服务 (阿里百炼等，建议使用 Qwen-Max)</h3>
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
@@ -495,53 +685,49 @@ const Settings = () => {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* 通知设置 */}
-        <div className="mb-8">
-          <div className="flex items-center mb-4">
-            <BellIcon className="h-5 w-5 text-gray-500 mr-2" />
-            <h2 className="text-lg font-semibold text-gray-900">通知设置</h2>
-          </div>
-
-          <div className="space-y-3">
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">邮件通知</span>
+            {/* 配置文件操作 */}
+            <div className="border rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-900 mb-3">配置文件</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                使用模板快速填写，或导入/导出 JSON 配置文件以备份与同步本地环境。
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="px-3 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  下载配置模板
+                </button>
+                <button
+                  type="button"
+                  onClick={exportCurrentConfig}
+                  className="px-3 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  导出当前配置
+                </button>
+                <button
+                  type="button"
+                  onClick={handleChooseConfigFile}
+                  className="px-3 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  从文件加载配置
+                </button>
+              </div>
               <input
-                type="checkbox"
-                checked={notifications.email_notifications}
-                onChange={(e) => setNotifications(prev => ({ ...prev, email_notifications: e.target.checked }))}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={handleConfigFileChange}
               />
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">推送通知</span>
-              <input
-                type="checkbox"
-                checked={notifications.push_notifications}
-                onChange={(e) => setNotifications(prev => ({ ...prev, push_notifications: e.target.checked }))}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">旅行提醒</span>
-              <input
-                type="checkbox"
-                checked={notifications.travel_reminders}
-                onChange={(e) => setNotifications(prev => ({ ...prev, travel_reminders: e.target.checked }))}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">预算警报</span>
-              <input
-                type="checkbox"
-                checked={notifications.budget_alerts}
-                onChange={(e) => setNotifications(prev => ({ ...prev, budget_alerts: e.target.checked }))}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-            </label>
+              {configActionStatus && (
+                <p className={`mt-3 text-sm ${configActionStatus.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                  {configActionStatus.message}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

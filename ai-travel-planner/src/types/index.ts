@@ -68,6 +68,7 @@ export interface APIConfig {
   // 云端同步（Supabase）配置
   supabase_url?: string;
   supabase_anon_key?: string;
+  supabase_service_role_key?: string;
 
   // 同步服务地址（后端直连 Postgres 的代理）
   sync_api_base?: string;

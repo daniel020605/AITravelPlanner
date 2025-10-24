@@ -10,8 +10,10 @@ type Json = any;
 function base() {
   const cfg = useConfigStore.getState().config || {};
   const url = (cfg.supabase_url || '').replace(/\/+$/, '');
-  const key = (cfg.supabase_anon_key || '').trim();
-  return { url, key };
+  const anonKey = (cfg.supabase_anon_key || '').trim();
+  const serviceKey = (cfg.supabase_service_role_key || '').trim();
+  const effectiveKey = serviceKey || anonKey;
+  return { url, anonKey, serviceKey, key: effectiveKey };
 }
 
 export function isEnabled(): boolean {
@@ -29,6 +31,31 @@ function headers() {
   } as Record<string, string>;
 }
 
+async function handleError(resp: Response, context: string): Promise<never> {
+  const statusPart = `${context} failed: ${resp.status} ${resp.statusText}`.trim();
+  let detail = '';
+  try {
+    const text = await resp.text();
+    if (text) {
+      try {
+        const data = JSON.parse(text);
+        const pieces = [
+          data?.code ? `code=${data.code}` : '',
+          data?.message || data?.error || '',
+          data?.details || '',
+          data?.hint || '',
+        ].filter(Boolean);
+        detail = pieces.join(' | ') || text;
+      } catch {
+        detail = text;
+      }
+    }
+  } catch {
+    // ignore parsing failures
+  }
+  throw new Error(detail ? `${statusPart} - ${detail}` : statusPart);
+}
+
 // travel_plans: id(text), user_id(text), title, destination, start_date, end_date,
 // budget(numeric), travelers(int4), preferences(jsonb), itinerary(jsonb),
 // expenses_agg(可不需要), created_at(timestamptz), updated_at(timestamptz)
@@ -44,7 +71,7 @@ export async function fetchPlans(userId: string): Promise<TravelPlan[]> {
     });
     
     if (!resp.ok) {
-      throw new Error(`Supabase fetchPlans failed: ${resp.status} ${resp.statusText}`);
+      await handleError(resp, 'Supabase fetchPlans');
     }
     
     const rows: any[] = await resp.json();
@@ -79,7 +106,7 @@ export async function fetchPlanById(planId: string): Promise<TravelPlan | null> 
       headers: headers()
     });
     if (!resp.ok) {
-      throw new Error(`Supabase fetchPlanById failed: ${resp.status} ${resp.statusText}`);
+      await handleError(resp, 'Supabase fetchPlanById');
     }
     const rows: any[] = await resp.json();
     if (!rows || rows.length === 0) return null;
@@ -135,10 +162,10 @@ export async function upsertPlan(plan: TravelPlan): Promise<void> {
       });
       
       if (!updateResp.ok && updateResp.status !== 200 && updateResp.status !== 204) {
-        throw new Error(`Supabase upsertPlan update failed: ${updateResp.status} ${updateResp.statusText}`);
+        await handleError(updateResp, 'Supabase upsertPlan (update)');
       }
     } else if (!resp.ok && resp.status !== 201) {
-      throw new Error(`Supabase upsertPlan failed: ${resp.status} ${resp.statusText}`);
+      await handleError(resp, 'Supabase upsertPlan');
     }
   } catch (error) {
     console.error('Supabase upsertPlan error:', error);
@@ -157,7 +184,7 @@ export async function deletePlan(planId: string): Promise<void> {
     });
     
     if (!resp.ok && resp.status !== 200 && resp.status !== 204) {
-      throw new Error(`Supabase deletePlan failed: ${resp.status} ${resp.statusText}`);
+      await handleError(resp, 'Supabase deletePlan');
     }
   } catch (error) {
     console.error('Supabase deletePlan error:', error);
@@ -190,10 +217,10 @@ export async function upsertExpense(expense: Expense): Promise<void> {
       });
       
       if (!updateResp.ok && updateResp.status !== 200 && updateResp.status !== 204) {
-        throw new Error(`Supabase upsertExpense update failed: ${updateResp.status} ${updateResp.statusText}`);
+        await handleError(updateResp, 'Supabase upsertExpense (update)');
       }
     } else if (!resp.ok && resp.status !== 201) {
-      throw new Error(`Supabase upsertExpense failed: ${resp.status} ${resp.statusText}`);
+      await handleError(resp, 'Supabase upsertExpense');
     }
   } catch (error) {
     console.error('Supabase upsertExpense error:', error);
@@ -212,7 +239,7 @@ export async function deleteExpense(expenseId: string): Promise<void> {
     });
     
     if (!resp.ok && resp.status !== 200 && resp.status !== 204) {
-      throw new Error(`Supabase deleteExpense failed: ${resp.status} ${resp.statusText}`);
+      await handleError(resp, 'Supabase deleteExpense');
     }
   } catch (error) {
     console.error('Supabase deleteExpense error:', error);

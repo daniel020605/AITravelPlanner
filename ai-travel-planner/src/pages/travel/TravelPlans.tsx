@@ -239,7 +239,14 @@ const TravelPlans = () => {
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <h3 className="text-xl font-semibold text-slate-900">{plan.title}</h3>
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    <Link
+                      to={`/travel/${plan.id}`}
+                      className="transition hover:text-blue-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 rounded-sm"
+                    >
+                      {plan.title || '未命名行程'}
+                    </Link>
+                  </h3>
                   <p className="text-sm text-slate-500 flex items-center">
                     <MapPinIcon className="h-4 w-4 mr-2 text-slate-400" />
                     {plan.destination}

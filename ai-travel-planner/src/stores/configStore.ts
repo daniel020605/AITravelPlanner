@@ -24,6 +24,7 @@ const defaultConfig: Partial<APIConfig> = {
   // 云端同步（Supabase）默认空配置
   supabase_url: '',
   supabase_anon_key: '',
+  supabase_service_role_key: '',
   // Note: sync_api_base and sync_api_key are kept in the type for backward compatibility
   // but are no longer used as defaults since we prioritize Supabase
 };

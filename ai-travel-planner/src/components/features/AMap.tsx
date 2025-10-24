@@ -6,6 +6,7 @@ interface AMapProps {
   zoom?: number;
   markers?: Location[];
   onMarkerClick?: (location: Location) => void;
+  polylinePath?: Location[];
   height?: string;
   className?: string;
   apiKey?: string;
@@ -25,12 +26,19 @@ declare global {
         setZoom?: (zoom: number) => void;
         getZoom?: () => number;
       };
+      Polyline: new (options: Record<string, unknown>) => unknown;
       Marker: new (options: Record<string, unknown>) => {
         on: (event: string, callback: () => void) => void;
+        getPosition?: () => { lng: number; lat: number } | [number, number];
       };
       Scale: new () => unknown;
       ToolBar: new (options: Record<string, unknown>) => unknown;
       Bounds?: new (southWest: [number, number], northEast: [number, number]) => unknown;
+      InfoWindow?: new (options?: Record<string, unknown>) => {
+        setContent: (content: string | HTMLElement) => void;
+        open: (map: unknown, position: [number, number]) => void;
+        close: () => void;
+      };
     };
     AMapUI?: Record<string, unknown>;
   }
@@ -52,11 +60,20 @@ const toFiniteNumber = (value: unknown): number | null => {
   return null;
 };
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 const AMap = ({
   center = DEFAULT_CENTER,
   zoom = 10,
   markers = [],
   onMarkerClick,
+  polylinePath = [],
   height = '400px',
   className = '',
   apiKey,
@@ -164,6 +181,16 @@ const AMap = ({
       })
       .filter(Boolean) as Location[];
 
+    const validPolylinePath = (polylinePath || [])
+      .map((point) => {
+        const lng = toFiniteNumber(point?.longitude);
+        const lat = toFiniteNumber(point?.latitude);
+        if (lng === null || lat === null) return null;
+        if (lng === 0 && lat === 0) return null;
+        return [lng, lat] as [number, number];
+      })
+      .filter(Boolean) as [number, number][];
+
     try {
       const map = new window.AMap.Map(mapRef.current, {
         zoom,
@@ -175,6 +202,10 @@ const AMap = ({
       map.addControl(new window.AMap.Scale());
       map.addControl(new window.AMap.ToolBar({ position: 'RB' }));
 
+      const infoWindow = typeof window.AMap.InfoWindow === 'function'
+        ? new window.AMap.InfoWindow({ closeWhenClickMap: true })
+        : null;
+
       const overlays: unknown[] = [];
       if (validMarkers.length > 0) {
         validMarkers.forEach((marker) => {
@@ -184,10 +215,43 @@ const AMap = ({
             animation: 'AMAP_ANIMATION_DROP',
           });
 
-          markerInstance.on('click', () => onMarkerClick?.(marker));
+          markerInstance.on('click', () => {
+            if (infoWindow && marker) {
+              const title = escapeHtml((marker.name || marker.address || '').trim());
+              const content = title ? `<div style="font-size:13px;color:#0f172a;font-weight:600;padding:4px 0;">${title}</div>` : '';
+              if (content) {
+                infoWindow.setContent(content);
+                const pos = typeof markerInstance.getPosition === 'function'
+                  ? markerInstance.getPosition()
+                  : [marker.longitude, marker.latitude];
+                const lngLatArray: [number, number] = Array.isArray(pos)
+                  ? [Number(pos[0]), Number(pos[1])]
+                  : [
+                      toFiniteNumber((pos as any)?.lng) ?? marker.longitude,
+                      toFiniteNumber((pos as any)?.lat) ?? marker.latitude,
+                    ];
+                infoWindow.open(map, lngLatArray);
+              }
+            }
+            onMarkerClick?.(marker);
+          });
           map.add(markerInstance);
           overlays.push(markerInstance);
         });
+      }
+
+      if (validPolylinePath.length > 1) {
+        const polyline = new window.AMap.Polyline({
+          path: validPolylinePath,
+          strokeColor: '#2563EB',
+          strokeWeight: 4,
+          strokeOpacity: 0.8,
+          lineJoin: 'round',
+          lineCap: 'round',
+          showDir: true,
+        });
+        map.add(polyline);
+        overlays.push(polyline);
       }
 
       if (validMarkers.length > 1) {
@@ -234,12 +298,13 @@ const AMap = ({
         } catch {
           // ignore
         }
+        infoWindow?.close?.();
       };
     } catch (err) {
       console.error('Failed to initialize AMap:', err);
       setError('初始化地图失败');
     }
-  }, [isLoaded, center, zoom, markers, onMarkerClick]);
+  }, [isLoaded, center, zoom, markers, polylinePath, onMarkerClick]);
 
   if (error) {
     return (

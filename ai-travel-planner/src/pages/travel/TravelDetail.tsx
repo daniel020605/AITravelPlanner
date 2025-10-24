@@ -179,7 +179,12 @@ const TravelDetail = () => {
 
   const itineraryMarkers = useMemo(() => {
     if (!plan) return [] as Array<{ name: string; address: string; latitude: number; longitude: number }>;
-    return plan.itinerary
+    const sorted = [...plan.itinerary].sort((a, b) => {
+      const dayDiff = (a.day ?? 0) - (b.day ?? 0);
+      if (dayDiff !== 0) return dayDiff;
+      return (a.time || '').localeCompare(b.time || '');
+    });
+    return sorted
       .map(item => {
         const loc = item.location;
         if (!loc) return null;
@@ -195,7 +200,7 @@ const TravelDetail = () => {
         };
       })
       .filter(Boolean) as Array<{ name: string; address: string; latitude: number; longitude: number }>;
-  }, [plan, resolvedAmapKey]);
+  }, [plan]);
 
   const poiMarkers = useMemo(() => {
     const parseLocation = (loc?: string) => {
@@ -239,19 +244,23 @@ const TravelDetail = () => {
     async ({ force = false, signal }: { force?: boolean; signal?: AbortSignal } = {}) => {
       if (!plan) return;
       const cacheKey = `poi-reco:${plan.id}`;
+      const readCached = () => {
+        try {
+          const cachedRaw = localStorage.getItem(cacheKey);
+          if (!cachedRaw) return null;
+          return JSON.parse(cachedRaw);
+        } catch {
+          return null;
+        }
+      };
 
       if (!force) {
-        const cached = (() => {
-          try { return localStorage.getItem(cacheKey); } catch { return null; }
-        })();
+        const cached = readCached();
         if (cached) {
-          try {
-            const parsed = JSON.parse(cached);
-            if (!signal?.aborted) {
-              setPoi(parsed);
-            }
-            return;
-          } catch {}
+          if (!signal?.aborted) {
+            setPoi(cached);
+          }
+          return;
         }
       }
 
@@ -261,6 +270,9 @@ const TravelDetail = () => {
       setPoiError(null);
 
       try {
+        const sleep = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
+        const delayBetweenRequestsMs = 400;
+
         const queries = await extractPoiQueries({
           destination: plan.destination,
           itinerary: plan.itinerary.map(i => ({
@@ -287,7 +299,6 @@ const TravelDetail = () => {
           return;
         }
 
-        const take = (arr: string[]) => (Array.isArray(arr) ? arr.slice(0, 3) : []);
         const fallbackIfEmpty = (arr: string[] | undefined, fallback: string[]) => {
           const cleaned = (Array.isArray(arr) ? arr : [])
             .map((s) => (typeof s === 'string' ? s.trim() : ''))
@@ -295,43 +306,110 @@ const TravelDetail = () => {
           return cleaned.length > 0 ? cleaned : fallback;
         };
 
-        const transportQueries = fallbackIfEmpty(queries.transport, ['交通枢纽', '地铁站', '公交站']);
-        const hotelQueries = fallbackIfEmpty(queries.hotels, ['酒店', '住宿', '民宿']);
-        const restaurantQueries = fallbackIfEmpty(queries.restaurants, ['餐厅', '美食', '小吃']);
+        const transportQueries = fallbackIfEmpty(queries.transport, ['交通枢纽', '地铁站', '公交站']).slice(0, 2);
+        const hotelQueries = fallbackIfEmpty(queries.hotels, ['酒店', '住宿', '民宿']).slice(0, 2);
+        const restaurantQueries = fallbackIfEmpty(queries.restaurants, ['餐厅', '美食', '小吃']).slice(0, 2);
 
-        const [tq, hq, rq] = [take(transportQueries), take(hotelQueries), take(restaurantQueries)];
+        type PoiCategory = 'transport' | 'hotels' | 'restaurants';
+        const categoryConfigs: Array<{ key: PoiCategory; queries: string[] }> = [
+          { key: 'transport', queries: transportQueries },
+          { key: 'hotels', queries: hotelQueries },
+          { key: 'restaurants', queries: restaurantQueries },
+        ];
 
-        const searchOne = (kw: string) => {
-          const keyword = [plan.destination, kw].filter(Boolean).join(' ').trim();
-          if (!keyword) return Promise.resolve([] as AmapPlace[]);
-          return amapSearchText({
-            key,
-            keywords: keyword,
-            location: locationParam ?? undefined,
-            sortrule: locationParam ? 'distance' : 'weight',
-            page: 1,
-            offset: 10,
-          }).catch(() => [] as AmapPlace[]);
+        const destinationRaw = (plan.destination || '').trim();
+        const fragments = destinationRaw
+          .split(/[·\s,，、\-]+/)
+          .map(part => part.trim())
+          .filter(Boolean);
+        const primaryFragment = fragments.length > 0 ? fragments[fragments.length - 1] : destinationRaw;
+        const normalizeDestination = (value: string) => value.replace(/[·,，、]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+        const buildKeyword = (keyword: string) => {
+          const normalized = keyword.trim();
+          if (!normalized) return '';
+          if (!destinationRaw) return normalized;
+          const dest = normalizeDestination(destinationRaw);
+          return `${dest} ${normalized}`.replace(/\s+/g, ' ').trim();
         };
 
-        const [tRes, hRes, rRes] = await Promise.all([
-          Promise.all(tq.map(searchOne)).then(list => list.flat()),
-          Promise.all(hq.map(searchOne)).then(list => list.flat()),
-          Promise.all(rq.map(searchOne)).then(list => list.flat()),
-        ]);
+        const searchOnce = async (keyword: string) => {
+          const finalKeyword = buildKeyword(keyword);
+          if (!finalKeyword) return [] as AmapPlace[];
+          try {
+            const res = await amapSearchText({
+              key,
+              keywords: finalKeyword,
+              city: primaryFragment || undefined,
+              location: locationParam ?? undefined,
+              sortrule: locationParam ? 'distance' : 'weight',
+              page: 1,
+              offset: 10,
+            });
+            return Array.isArray(res) ? res : [];
+          } catch (err: any) {
+            const message = String(err?.message || '');
+            if (message.includes('CUQPS_HAS_EXCEEDED_THE_LIMIT')) {
+              throw err;
+            }
+            return [];
+          }
+        };
+
+        const results: Record<PoiCategory, AmapPlace[]> = {
+          transport: [],
+          hotels: [],
+          restaurants: [],
+        };
+
+        for (let categoryIndex = 0; categoryIndex < categoryConfigs.length; categoryIndex++) {
+          const { key: categoryKey, queries } = categoryConfigs[categoryIndex];
+          if (signal?.aborted) return;
+          const seen = new Set<string>();
+          for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
+            const rawQuery = queries[queryIndex];
+            if (signal?.aborted) return;
+            const candidate = (rawQuery || '').trim();
+            if (!candidate || seen.has(candidate)) continue;
+            seen.add(candidate);
+            const res = await searchOnce(candidate);
+            if (signal?.aborted) return;
+            if (res.length > 0) {
+              results[categoryKey] = res;
+              break;
+            }
+            const hasNextQuery = queryIndex < queries.length - 1;
+            if (hasNextQuery) {
+              await sleep(delayBetweenRequestsMs);
+            }
+          }
+          const hasNextCategory = categoryIndex < categoryConfigs.length - 1;
+          if (hasNextCategory && results[categoryKey].length === 0) {
+            await sleep(delayBetweenRequestsMs);
+          }
+        }
 
         if (signal?.aborted) return;
 
         const next = {
-          transport: dedupeById(tRes).slice(0, 12),
-          hotels: dedupeById(hRes).slice(0, 12),
-          restaurants: dedupeById(rRes).slice(0, 12),
+          transport: dedupeById(results.transport).slice(0, 12),
+          hotels: dedupeById(results.hotels).slice(0, 12),
+          restaurants: dedupeById(results.restaurants).slice(0, 12),
         };
         setPoi(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch {}
       } catch (e: any) {
         if (!signal?.aborted) {
-          setPoiError(e?.message || '附近推荐检索失败，请稍后重试');
+          const message = String(e?.message || '');
+          const cached = readCached();
+          if (cached) {
+            setPoi(cached);
+          }
+          if (message.includes('CUQPS_HAS_EXCEEDED_THE_LIMIT')) {
+            setPoiError(cached ? '附近推荐调用频繁，已展示上次结果' : '附近推荐调用频繁，请稍后重试');
+          } else {
+            setPoiError(e?.message || (cached ? '附近推荐检索失败，已展示上次结果' : '附近推荐检索失败，请稍后重试'));
+          }
         }
       } finally {
         if (!signal?.aborted) {
@@ -534,6 +612,7 @@ const TravelDetail = () => {
           <AMap
             center={mapCenter}
             markers={mapMarkers}
+            polylinePath={itineraryMarkers}
             height="360px"
             className="w-full"
             apiKey={resolvedAmapKey || undefined}

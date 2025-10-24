@@ -5,7 +5,7 @@ import { useConfigStore } from '../../stores/configStore';
 export function getSupabaseClient() {
   const config = useConfigStore.getState().config || {};
   const supabaseUrl = config.supabase_url || '';
-  const supabaseAnonKey = config.supabase_anon_key || '';
+  const supabaseAnonKey = config.supabase_service_role_key || config.supabase_anon_key || '';
   
   if (!supabaseUrl || !supabaseAnonKey) {
     return null;
