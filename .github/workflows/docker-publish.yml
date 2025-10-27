@@ -18,7 +18,7 @@ env:
 
 jobs:
   build-and-push:
-    if: ${{ env.ACR_REGISTRY != '' && env.ACR_NAMESPACE != '' }}
+    if: ${{ vars.ACR_REGISTRY != '' && vars.ACR_NAMESPACE != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ACR_REGISTRY }}/${{ env.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          images: ${{ vars.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -49,7 +49,7 @@ jobs:
       - name: Log in to Alibaba Cloud Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.ACR_REGISTRY }}
+          registry: ${{ vars.ACR_REGISTRY }}
           username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
           password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
 
@@ -65,7 +65,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   missing-config:
-    if: ${{ env.ACR_REGISTRY == '' || env.ACR_NAMESPACE == '' }}
+    if: ${{ vars.ACR_REGISTRY == '' || vars.ACR_NAMESPACE == '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Fail workflow if registry variables are missing
