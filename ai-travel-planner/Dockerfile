@@ -4,18 +4,17 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Set the PATH to include node_modules/.bin
-ENV PATH=/app/node_modules/.bin:$PATH
+# Copy package files first to leverage Docker cache
+COPY package.json package-lock.json ./
 
 # Install all dependencies including dev dependencies for build
-COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source code
-COPY tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts ./
-COPY src ./src
-COPY public ./public
-COPY tailwind.config.js postcss.config.js eslint.config.js ./ 
+# Copy all source code after installing dependencies
+COPY . .
+
+# Set the PATH to include node_modules/.bin
+ENV PATH=/app/node_modules/.bin:$PATH
 
 # Build the application
 RUN npm run build
