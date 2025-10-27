@@ -4,11 +4,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-# Install dependencies first to leverage Docker cache
+# Install all dependencies including dev dependencies for build
 COPY package.json package-lock.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy source code
 COPY tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts ./
