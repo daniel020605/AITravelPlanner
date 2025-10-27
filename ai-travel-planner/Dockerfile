@@ -4,6 +4,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Set the PATH to include node_modules/.bin
+ENV PATH=/app/node_modules/.bin:$PATH
+
 # Install all dependencies including dev dependencies for build
 COPY package.json package-lock.json ./
 RUN npm ci
