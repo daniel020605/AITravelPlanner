@@ -4,6 +4,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Install curl for health check
+RUN apk add --no-cache curl
+
 # Copy package files first to leverage Docker cache
 COPY package.json package-lock.json ./
 
@@ -13,11 +16,8 @@ RUN npm ci
 # Copy all source code after installing dependencies
 COPY . .
 
-# Set the PATH to include node_modules/.bin
-ENV PATH=/app/node_modules/.bin:$PATH
-
-# Build the application
-RUN npm run build
+# Build the application using npx to ensure vite is found
+RUN npx vite build
 
 # Production stage
 FROM nginx:1.27-alpine
