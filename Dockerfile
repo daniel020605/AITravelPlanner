@@ -12,6 +12,7 @@ RUN npm ci
 
 # Copy source code
 COPY ai-travel-planner/tsconfig.json ai-travel-planner/tsconfig.app.json ai-travel-planner/tsconfig.node.json ai-travel-planner/vite.config.ts ./
+COPY ai-travel-planner/index.html ./index.html
 COPY ai-travel-planner/src ./src
 COPY ai-travel-planner/public ./public
 COPY ai-travel-planner/tailwind.config.js ai-travel-planner/postcss.config.js ai-travel-planner/eslint.config.js ./ 
