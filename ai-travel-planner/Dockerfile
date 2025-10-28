@@ -25,6 +25,9 @@ FROM nginx:1.27-alpine
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
+# Install runtime tools required by health checks and interactive shells
+RUN apk add --no-cache curl bash
+
 # Copy custom nginx config
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 

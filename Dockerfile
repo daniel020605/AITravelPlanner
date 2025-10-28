@@ -26,6 +26,9 @@ FROM nginx:1.27-alpine
 # Ensure runtime uses production settings
 ENV NODE_ENV=production
 
+# Install runtime tools required by health checks and debugging
+RUN apk add --no-cache curl bash
+
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
