@@ -28,6 +28,9 @@ RUN rm /etc/nginx/conf.d/default.conf
 # Install runtime tools required by health checks and interactive shells
 RUN apk add --no-cache curl bash
 
+# Disable default user directive to avoid warnings when running non-root
+RUN sed -i 's/^user[[:space:]][[:alnum:]_]*;//' /etc/nginx/nginx.conf
+
 # Copy custom nginx config
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 

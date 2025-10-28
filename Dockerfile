@@ -29,6 +29,9 @@ ENV NODE_ENV=production
 # Install runtime tools required by health checks and debugging
 RUN apk add --no-cache curl bash
 
+# Disable default user directive to avoid warnings when running non-root
+RUN sed -i 's/^user[[:space:]][[:alnum:]_]*;//' /etc/nginx/nginx.conf
+
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
