@@ -4,11 +4,11 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
 # Install dependencies first to leverage Docker cache
 COPY ai-travel-planner/package.json ai-travel-planner/package-lock.json ./
-RUN npm ci --only=production
+
+# Install all dependencies (vite lives in devDependencies)
+RUN npm ci
 
 # Copy source code
 COPY ai-travel-planner/tsconfig.json ai-travel-planner/tsconfig.app.json ai-travel-planner/tsconfig.node.json ai-travel-planner/vite.config.ts ./
@@ -21,6 +21,9 @@ RUN npm run build
 
 # Production stage
 FROM nginx:1.27-alpine
+
+# Ensure runtime uses production settings
+ENV NODE_ENV=production
 
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
