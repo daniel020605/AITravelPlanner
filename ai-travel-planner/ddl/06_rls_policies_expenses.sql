@@ -4,7 +4,7 @@ CREATE POLICY "Users can view expenses for their travel plans"
   USING (EXISTS (
     SELECT 1 FROM travel_plans 
     WHERE travel_plans.id = expenses.travel_plan_id 
-    AND travel_plans.user_id = auth.uid()::text
+    AND travel_plans.user_id = auth.uid()
   ));
 
 CREATE POLICY "Users can insert expenses for their travel plans" 
@@ -12,7 +12,7 @@ CREATE POLICY "Users can insert expenses for their travel plans"
   WITH CHECK (EXISTS (
     SELECT 1 FROM travel_plans 
     WHERE travel_plans.id = expenses.travel_plan_id 
-    AND travel_plans.user_id = auth.uid()::text
+    AND travel_plans.user_id = auth.uid()
   ));
 
 CREATE POLICY "Users can update expenses for their travel plans" 
@@ -20,7 +20,7 @@ CREATE POLICY "Users can update expenses for their travel plans"
   USING (EXISTS (
     SELECT 1 FROM travel_plans 
     WHERE travel_plans.id = expenses.travel_plan_id 
-    AND travel_plans.user_id = auth.uid()::text
+    AND travel_plans.user_id = auth.uid()
   ));
 
 CREATE POLICY "Users can delete expenses for their travel plans" 
@@ -28,5 +28,5 @@ CREATE POLICY "Users can delete expenses for their travel plans"
   USING (EXISTS (
     SELECT 1 FROM travel_plans 
     WHERE travel_plans.id = expenses.travel_plan_id 
-    AND travel_plans.user_id = auth.uid()::text
+    AND travel_plans.user_id = auth.uid()
   ));

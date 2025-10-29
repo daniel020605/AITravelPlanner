@@ -10,6 +10,7 @@ This directory contains the SQL scripts to set up the Supabase database for the 
 4. `04_enable_rls.sql` - Enables Row Level Security on tables
 5. `05_rls_policies_travel_plans.sql` - Creates RLS policies for travel_plans table
 6. `06_rls_policies_expenses.sql` - Creates RLS policies for expenses table
+7. `07_triggers.sql` - Adds triggers to keep `updated_at` in sync
 
 ## Usage
 
@@ -17,35 +18,35 @@ Run these scripts in numerical order in your Supabase SQL editor:
 
 1. Run files 01-03 to create tables and indexes
 2. Run file 04 to enable Row Level Security
-3. Run files 05-06 to create security policies
+3. Run files 05-07 to create security policies and triggers
 
 ## Table Structure
 
 ### travel_plans
-- `id` (TEXT, PRIMARY KEY) - Unique identifier for the travel plan
-- `user_id` (TEXT) - ID of the user who owns this plan
+- `id` (UUID, PRIMARY KEY, default: gen_random_uuid()) - Unique identifier for the travel plan
+- `user_id` (UUID, FK auth.users) - ID of the user who owns this plan
 - `title` (TEXT) - Title of the travel plan
 - `destination` (TEXT) - Destination of the travel
 - `start_date` (DATE) - Start date of the travel
 - `end_date` (DATE) - End date of the travel
-- `budget` (NUMERIC) - Budget for the travel (default: 0)
-- `travelers` (INTEGER) - Number of travelers (default: 1)
+- `budget` (NUMERIC, >= 0) - Budget for the travel (default: 0)
+- `travelers` (INTEGER, > 0) - Number of travelers (default: 1)
 - `preferences` (JSONB) - Travel preferences (default: empty array)
 - `itinerary` (JSONB) - Detailed itinerary (default: empty array)
 - `expenses` (JSONB) - Expenses associated with this plan (default: empty array)
-- `created_at` (TIMESTAMPTZ) - Creation timestamp (default: NOW())
-- `updated_at` (TIMESTAMPTZ) - Last update timestamp (default: NOW())
+- `created_at` (TIMESTAMPTZ, UTC) - Creation timestamp (default: timezone('utc', now()))
+- `updated_at` (TIMESTAMPTZ, UTC) - Last update timestamp (auto-managed trigger)
 
 ### expenses
-- `id` (TEXT, PRIMARY KEY) - Unique identifier for the expense
-- `travel_plan_id` (TEXT) - Reference to the travel plan (REFERENCES travel_plans(id) ON DELETE CASCADE)
+- `id` (UUID, PRIMARY KEY, default: gen_random_uuid()) - Unique identifier for the expense
+- `travel_plan_id` (UUID, FK travel_plans) - Reference to the travel plan (ON DELETE CASCADE)
 - `category` (TEXT) - Category of the expense
-- `amount` (NUMERIC) - Amount of the expense
+- `amount` (NUMERIC, >= 0) - Amount of the expense
 - `description` (TEXT) - Description of the expense
 - `date` (DATE) - Date of the expense
 - `location` (JSONB) - Location information (optional)
-- `created_at` (TIMESTAMPTZ) - Creation timestamp (default: NOW())
-- `updated_at` (TIMESTAMPTZ) - Last update timestamp (default: NOW())
+- `created_at` (TIMESTAMPTZ, UTC) - Creation timestamp (default: timezone('utc', now()))
+- `updated_at` (TIMESTAMPTZ, UTC) - Last update timestamp (auto-managed trigger)
 
 ## Indexes
 

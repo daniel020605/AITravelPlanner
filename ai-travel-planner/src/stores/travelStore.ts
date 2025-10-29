@@ -51,14 +51,31 @@ interface TravelState {
 const LS_PLANS_KEY = 'travel-plans';
 const LS_CURRENT_PLAN_ID_KEY = 'travel-current-plan-id';
 
+function storageKey(base: string) {
+  const user = useAuthStore.getState().user;
+  const suffix = user?.id ? `user-${user.id}` : 'guest';
+  return `${base}:${suffix}`;
+}
+
+function generateId(prefix = 'id') {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // fallback below
+    }
+  }
+  return `${prefix}_${Math.random().toString(36).slice(2)}${Date.now()}`;
+}
+
 function savePlansToStorage(plans: TravelPlan[]) {
   try {
-    localStorage.setItem(LS_PLANS_KEY, JSON.stringify(plans));
+    localStorage.setItem(storageKey(LS_PLANS_KEY), JSON.stringify(plans));
   } catch {}
 }
 function loadPlansFromStorage(): TravelPlan[] {
   try {
-    const raw = localStorage.getItem(LS_PLANS_KEY);
+    const raw = localStorage.getItem(storageKey(LS_PLANS_KEY));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -68,13 +85,14 @@ function loadPlansFromStorage(): TravelPlan[] {
 }
 function saveCurrentPlanId(id: string | null) {
   try {
-    if (id) localStorage.setItem(LS_CURRENT_PLAN_ID_KEY, id);
-    else localStorage.removeItem(LS_CURRENT_PLAN_ID_KEY);
+    const key = storageKey(LS_CURRENT_PLAN_ID_KEY);
+    if (id) localStorage.setItem(key, id);
+    else localStorage.removeItem(key);
   } catch {}
 }
 function loadCurrentPlanId(): string | null {
   try {
-    return localStorage.getItem(LS_CURRENT_PLAN_ID_KEY);
+    return localStorage.getItem(storageKey(LS_CURRENT_PLAN_ID_KEY));
   } catch {
     return null;
   }
@@ -91,9 +109,12 @@ export const useTravelStore = create<TravelState>((set, get) => ({
   createPlan: async (planData) => {
     set({ isLoading: true, error: null });
     try {
+      if (!planData.user_id) {
+        throw new Error('缺少用户信息，无法创建行程计划');
+      }
       const plan: TravelPlan = {
         ...planData,
-        id: Date.now().toString(),
+        id: generateId('plan'),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -337,7 +358,7 @@ export const useTravelStore = create<TravelState>((set, get) => ({
 
     const item: ItineraryItem = {
       ...itemData,
-      id: Date.now().toString(),
+      id: generateId('iti'),
     };
 
     const updatedItinerary = [...currentPlan.itinerary, item];
@@ -368,7 +389,7 @@ export const useTravelStore = create<TravelState>((set, get) => ({
 
     const expense: Expense = {
       ...expenseData,
-      id: Date.now().toString(),
+      id: generateId('exp'),
     };
 
     const updatedExpenses = [...currentPlan.expenses, expense];

@@ -14,33 +14,33 @@ The application uses two main tables to store travel planning data:
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | TEXT (Primary Key) | Unique identifier for the travel plan |
-| user_id | TEXT | ID of the user who owns this plan |
+| id | UUID (Primary Key) | Unique identifier for the travel plan (default: `gen_random_uuid()`) |
+| user_id | UUID (FK auth.users) | ID of the user who owns this plan |
 | title | TEXT | Title of the travel plan |
 | destination | TEXT | Destination of the travel |
 | start_date | DATE | Start date of the travel |
 | end_date | DATE | End date of the travel |
-| budget | NUMERIC | Budget for the travel (default: 0) |
-| travelers | INTEGER | Number of travelers (default: 1) |
+| budget | NUMERIC | Budget for the travel (default: 0, must be ≥ 0) |
+| travelers | INTEGER | Number of travelers (default: 1, must be > 0) |
 | preferences | JSONB | Travel preferences (default: empty array) |
 | itinerary | JSONB | Detailed itinerary (default: empty array) |
-| expenses | JSONB | Expenses associated with this plan (default: empty array) |
-| created_at | TIMESTAMPTZ | Creation timestamp (default: NOW()) |
-| updated_at | TIMESTAMPTZ | Last update timestamp (default: NOW()) |
+| expenses | JSONB | Expenses snapshot associated with this plan (default: empty array) |
+| created_at | TIMESTAMPTZ | Creation timestamp (default: `timezone('utc', now())`) |
+| updated_at | TIMESTAMPTZ | Last update timestamp (auto-managed trigger) |
 
 ### expenses
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | TEXT (Primary Key) | Unique identifier for the expense |
-| travel_plan_id | TEXT (Foreign Key) | Reference to the travel plan (REFERENCES travel_plans(id) ON DELETE CASCADE) |
+| id | UUID (Primary Key) | Unique identifier for the expense (default: `gen_random_uuid()`) |
+| travel_plan_id | UUID (Foreign Key) | Reference to the travel plan (ON DELETE CASCADE) |
 | category | TEXT | Category of the expense |
-| amount | NUMERIC | Amount of the expense |
+| amount | NUMERIC | Amount of the expense (must be ≥ 0) |
 | description | TEXT | Description of the expense |
 | date | DATE | Date of the expense |
 | location | JSONB | Location information (optional) |
-| created_at | TIMESTAMPTZ | Creation timestamp (default: NOW()) |
-| updated_at | TIMESTAMPTZ | Last update timestamp (default: NOW()) |
+| created_at | TIMESTAMPTZ | Creation timestamp (default: `timezone('utc', now())`) |
+| updated_at | TIMESTAMPTZ | Last update timestamp (auto-managed trigger) |
 
 ## Relationships
 

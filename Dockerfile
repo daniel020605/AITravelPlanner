@@ -26,8 +26,8 @@ FROM nginx:1.27-alpine
 # Ensure runtime uses production settings
 ENV NODE_ENV=production
 
-# Install runtime tools required by health checks and debugging
-RUN apk add --no-cache curl bash
+# Install runtime tools required by health checks, debugging, and runtime config templating
+RUN apk add --no-cache curl bash gettext
 
 # Disable default user directive to avoid warnings when running non-root
 RUN sed -i 's/^user[[:space:]][[:alnum:]_]*;//' /etc/nginx/nginx.conf
@@ -37,6 +37,10 @@ RUN rm /etc/nginx/conf.d/default.conf
 
 # Copy custom nginx config
 COPY ai-travel-planner/docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy runtime config entrypoint script
+COPY ai-travel-planner/docker/entrypoint/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
+RUN chmod +x /docker-entrypoint.d/40-runtime-config.sh
 
 # Copy built application
 COPY --from=build /app/dist /usr/share/nginx/html

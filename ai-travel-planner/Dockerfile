@@ -25,14 +25,18 @@ FROM nginx:1.27-alpine
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Install runtime tools required by health checks and interactive shells
-RUN apk add --no-cache curl bash
+# Install runtime tools required by health checks, interactive shells, and runtime config templating
+RUN apk add --no-cache curl bash gettext
 
 # Disable default user directive to avoid warnings when running non-root
 RUN sed -i 's/^user[[:space:]][[:alnum:]_]*;//' /etc/nginx/nginx.conf
 
 # Copy custom nginx config
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy runtime config entrypoint script
+COPY docker/entrypoint/40-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
+RUN chmod +x /docker-entrypoint.d/40-runtime-config.sh
 
 # Copy built application
 COPY --from=build /app/dist /usr/share/nginx/html

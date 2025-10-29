@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useConfigStore } from './configStore';
 
 // 简化的User类型，避免循环依赖
 interface User {
@@ -35,6 +36,17 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
+          const config = useConfigStore.getState().config || {};
+          const supabaseConfigured =
+            !!(config.supabase_url && config.supabase_url.trim()) &&
+            !!(config.supabase_anon_key && config.supabase_anon_key.trim());
+
+          if (!supabaseConfigured) {
+            const message = '未检测到 Supabase 配置，请先在设置页填写 Supabase URL 和 Anon Key。';
+            set({ error: message, isLoading: false });
+            throw new Error(message);
+          }
+
           const { authService } = await import('../services/auth/authService');
           const { user } = await authService.login(email, password);
           set({ user, isLoading: false });
@@ -43,6 +55,7 @@ export const useAuthStore = create<AuthState>()(
             error: error instanceof Error ? error.message : 'Login failed',
             isLoading: false
           });
+          throw (error instanceof Error ? error : new Error('Login failed'));
         }
       },
 
